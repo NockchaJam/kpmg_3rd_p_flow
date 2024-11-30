@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float
 from .database import Base
+from geoalchemy2 import Geometry
 
 class Location(Base):
     __tablename__ = 'locations'
@@ -11,3 +12,5 @@ class Location(Base):
     name = Column(String(100))
     description = Column(String(500))
     industry = Column(String(100))
+    coordinates = Column(Geometry('POINT'), nullable=False)
+    __table_args__ = {'mysql_engine': 'InnoDB', 'mysql_charset': 'utf8mb4'}
