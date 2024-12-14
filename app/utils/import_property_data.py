@@ -5,6 +5,7 @@ from ..database import SessionLocal, engine
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from sqlalchemy import inspect
+import random
 
 def process_building_row(row):
     """total_seoul_info_ree2.csv 데이터 처리"""
@@ -15,6 +16,13 @@ def process_building_row(row):
         def safe_str(value):
             return str(value) if pd.notna(value) else ''
             
+        # 랜덤 업종 선택
+        business_types = ["카페", "편의점", "음식점", "인테리어", "pc방", "체육관"]
+        random_business = random.choice(business_types)
+        
+        # 1부터 100까지의 랜덤 점수 생성
+        random_score = random.randint(1, 100)
+            
         return {
             'building_name': safe_str(row.get('건물명', '')),
             'address': row['도로명주소'],
@@ -22,7 +30,9 @@ def process_building_row(row):
             'longitude': float(row['경도']),
             'postal_code': safe_str(row.get('신우편번호', '')),
             'floor_info': safe_str(row.get('층정보', '')),
-            'coordinates': from_shape(Point(float(row['경도']), float(row['위도'])))
+            'business_type': random_business,
+            'coordinates': from_shape(Point(float(row['경도']), float(row['위도']))),
+            'score': random_score  # 랜덤 점수 추가
         }
     except Exception as e:
         print(f"건물 데이터 행 처리 중 오류 발생: {row}")

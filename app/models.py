@@ -25,7 +25,9 @@ class CommercialBuilding(Base):
     longitude = Column(Float, nullable=False)
     postal_code = Column(String(20), nullable=True)
     floor_info = Column(String(50), nullable=True)
+    business_type = Column(String(50), nullable=True)
     coordinates = Column(Geometry('POINT'), nullable=False)
+    score = Column(Integer, nullable=True)
     __table_args__ = {'mysql_engine': 'InnoDB', 'mysql_charset': 'utf8mb4'}
 
 class VacantListing(Base):
