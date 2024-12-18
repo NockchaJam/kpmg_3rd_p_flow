@@ -1,23 +1,47 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, func
+from sqlalchemy import text
 from . import models
 from .database import SessionLocal, engine
+from typing import List
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from math import cos, radians
 
 app = FastAPI()
 
-# CORS 설정 추가
+# CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React 앱의 주소
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# DB 세션 의존성
+# Pydantic 모델 정의
+class CommercialBuildingBase(BaseModel):
+    industry_category: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    sales_level: str | None = None
+
+class VacantListingBase(BaseModel):
+    latitude: float | None = None
+    longitude: float | None = None
+
+class CommercialBuilding(CommercialBuildingBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+class VacantListing(VacantListingBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+
+# 데이터베이스 세션 의존성
 def get_db():
     db = SessionLocal()
     try:
@@ -25,113 +49,136 @@ def get_db():
     finally:
         db.close()
 
-@app.get("/api/locations/recent")
-def get_recent_locations(db: Session = Depends(get_db)):
-    locations = db.query(models.Location).limit(5).all()
-    return [
-        {
-            "id": loc.id,
-            "name": loc.name,
-            "address": loc.address,
-            "latitude": loc.latitude,
-            "longitude": loc.longitude,
-            "description": loc.description,
-            "industry": loc.industry
-        }
-        for loc in locations
-    ]
+@app.get("/commercial-buildings/", response_model=List[CommercialBuilding])
+def get_commercial_buildings(db: Session = Depends(get_db)):
+    """상가 데이터 조회"""
+    buildings = db.query(models.CommercialBuilding).all()
+    return buildings
 
-@app.get("/api/locations/search")
-def search_locations(lat: float, lng: float, radius: float, db: Session = Depends(get_db)):
-    # 위도/경도를 라디안으로 변환
-    lat_rad = radians(lat)
-    lng_rad = radians(lng)
-    
-    # Haversine 공식을 SQL로 구현
-    distance_formula = func.acos(
-        func.sin(lat_rad) * func.sin(func.radians(models.VacantListing.latitude)) +
-        func.cos(lat_rad) * func.cos(func.radians(models.VacantListing.latitude)) *
-        func.cos(func.radians(models.VacantListing.longitude) - lng_rad)
-    ) * 6371000  # 지구 반지름 (미터)
+@app.get("/vacant-listings/", response_model=List[VacantListing])
+def get_vacant_listings(db: Session = Depends(get_db)):
+    """공실 데이터 조회"""
+    vacants = db.query(models.VacantListing).all()
+    return vacants
 
-    # 쿼리 실행
-    vacants = db.query(models.VacantListing).filter(
-        distance_formula <= radius
-    ).all()
-    
-    # 각 공실 위치별로 주변 상가들의 평균 점수 계산
-    result_with_scores = []
-    for vacant in vacants:
-        # 해당 공실 주변의 상가들 검색
-        nearby_business_scores = db.query(
-            func.avg(models.CommercialBuilding.score).label('avg_score')
-        ).filter(
-            func.acos(
-                func.sin(radians(vacant.latitude)) * 
-                func.sin(func.radians(models.CommercialBuilding.latitude)) +
-                func.cos(radians(vacant.latitude)) * 
-                func.cos(func.radians(models.CommercialBuilding.latitude)) *
-                func.cos(func.radians(models.CommercialBuilding.longitude) - 
-                        radians(vacant.longitude))
-            ) * 6371000 <= 100  # 100미터 반경 내의 상가들
-        ).scalar()
-
-        avg_score = round(nearby_business_scores) if nearby_business_scores else 0
-        
-        result_with_scores.append({
-            "id": vacant.id,
-            "property_type": vacant.property_type,
-            "floor_info": vacant.floor_info,
-            "deposit": vacant.deposit,
-            "monthly_rent": vacant.monthly_rent,
-            "formatted_price": vacant.formatted_price,
-            "area1": vacant.area1,
-            "area2": vacant.area2,
-            "latitude": vacant.latitude,
-            "longitude": vacant.longitude,
-            "description": vacant.description,
-            "area_score": avg_score  # 평균 점수 추가
-        })
-    
-    return result_with_scores
-
-@app.get("/api/businesses/search")
-def search_businesses(
+@app.get("/commercial-buildings/nearby/")
+def get_nearby_commercial_buildings(
     lat: float, 
     lng: float, 
-    radius: float, 
-    business_type: str,
+    radius: float = 1000, 
+    industry_category: str | None = None,
     db: Session = Depends(get_db)
 ):
-    # 위도/경도를 라디안으로 변환
-    lat_rad = radians(lat)
-    lng_rad = radians(lng)
+    """주변 상가 데이터 조회"""
+    print(f"\n주변 상가 검색 요청 받음:")
+    print(f"위도: {lat}, 경도: {lng}, 반경: {radius}m")
+    print(f"선택된 업종: {industry_category}")
     
-    # Haversine 공식을 SQL로 구현
-    distance_formula = func.acos(
-        func.sin(lat_rad) * func.sin(func.radians(models.CommercialBuilding.latitude)) +
-        func.cos(lat_rad) * func.cos(func.radians(models.CommercialBuilding.latitude)) *
-        func.cos(func.radians(models.CommercialBuilding.longitude) - lng_rad)
-    ) * 6371000  # 지구 반지름 (미터)
+    # 업종 필터링 조건 추가
+    query = text("""
+        SELECT id, industry_category, latitude, longitude, sales_level,
+            ST_Distance_Sphere(coordinates, ST_GeomFromText(:point)) as distance
+        FROM commercial_buildings
+        WHERE ST_Distance_Sphere(coordinates, ST_GeomFromText(:point)) <= :radius
+        AND (:industry_category IS NULL OR industry_category = :industry_category)
+        ORDER BY distance;
+    """)
+    
+    point = f'POINT({lng} {lat})'
+    try:
+        result = db.execute(query, {
+            'point': point, 
+            'radius': radius,
+            'industry_category': industry_category
+        })
+        
+        buildings = []
+        for row in result:
+            buildings.append({
+                'id': row.id,
+                'industry_category': row.industry_category,
+                'latitude': row.latitude,
+                'longitude': row.longitude,
+                'sales_level': row.sales_level,
+                'distance': row.distance
+            })
+        
+        print(f"검색 결과: {len(buildings)}개의 상가 발견")
+        if len(buildings) > 0:
+            print("첫 번째 결과:")
+            print(f"- ID: {buildings[0]['id']}")
+            print(f"- 업종: {buildings[0]['industry_category']}")
+            print(f"- 위치: ({buildings[0]['latitude']}, {buildings[0]['longitude']})")
+            print(f"- 거리: {buildings[0]['distance']}m")
+            
+        return buildings
+        
+    except Exception as e:
+        print(f"검색 중 오류 발생: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # 쿼리 실행
-    businesses = db.query(models.CommercialBuilding).filter(
-        and_(
-            distance_formula <= radius,
-            models.CommercialBuilding.business_type == business_type
-        )
-    )
+@app.get("/api/locations/search")
+def search_locations(lat: float, lng: float, radius: float = 1000, db: Session = Depends(get_db)):
+    """위치 기반 공실 검색"""
+    print(f"\n공실 검색 요청 받음:")
+    print(f"위도: {lat}, 경도: {lng}, 반경: {radius}m")
     
-    return [
-        {
-            "id": b.id,
-            "building_name": b.building_name,
-            "address": b.address,
-            "latitude": b.latitude,
-            "longitude": b.longitude,
-            "business_type": b.business_type,
-            "floor_info": b.floor_info,
-            "score": b.score
-        }
-        for b in businesses.all()
-    ]
+    query = text("""
+        SELECT id, latitude, longitude,
+            ST_Distance_Sphere(coordinates, ST_GeomFromText(:point)) as distance
+        FROM vacant_listings
+        WHERE ST_Distance_Sphere(coordinates, ST_GeomFromText(:point)) <= :radius
+        ORDER BY distance;
+    """)
+    
+    point = f'POINT({lng} {lat})'
+    print(f"검색 포인트: {point}")
+    
+    try:
+        result = db.execute(query, {'point': point, 'radius': radius})
+        
+        vacants = []
+        for row in result:
+            vacants.append({
+                'id': row.id,
+                'latitude': row.latitude,
+                'longitude': row.longitude,
+                'distance': row.distance
+            })
+        
+        print(f"검색 결과: {len(vacants)}개의 공실 발견")
+        if len(vacants) > 0:
+            print("첫 번째 결과:")
+            print(f"- ID: {vacants[0]['id']}")
+            print(f"- 위치: ({vacants[0]['latitude']}, {vacants[0]['longitude']})")
+            print(f"- 거리: {vacants[0]['distance']}m")
+        
+        return vacants
+        
+    except Exception as e:
+        print(f"검색 중 오류 발생: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/business-categories")
+def get_business_categories(db: Session = Depends(get_db)):
+    """상가 업종 카테고리 목록 조회"""
+    try:
+        # industry_category 컬럼의 고유한 값들을 조회
+        query = text("""
+            SELECT DISTINCT industry_category 
+            FROM commercial_buildings 
+            WHERE industry_category IS NOT NULL 
+            ORDER BY industry_category;
+        """)
+        
+        result = db.execute(query)
+        categories = [row[0] for row in result if row[0]]  # None 값 제외
+        
+        print(f"업종 카테고리 조회 결과: {len(categories)}개 카테고리 발견")
+        print("카테고리 목록:", categories)
+        
+        return categories
+        
+    except Exception as e:
+        print(f"업종 카테고리 조회 중 오류 발생: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

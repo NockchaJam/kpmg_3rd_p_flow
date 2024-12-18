@@ -4,216 +4,188 @@ from .. import models
 from ..database import SessionLocal, engine
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
-from sqlalchemy import inspect
 import random
 
-def process_building_row(row):
-    """total_seoul_info_ree2.csv 데이터 처리"""
+def process_store_row(row):
+    """final_data.csv 데이터 처리"""
     try:
         if pd.isna(row['위도']) or pd.isna(row['경도']):
             return None
             
         def safe_str(value):
-            return str(value) if pd.notna(value) else ''
+            return str(value) if pd.notna(value) else None
             
-        # 랜덤 업종 선택
-        business_types = ["카페", "편의점", "음식점", "인테리어", "pc방", "체육관"]
-        random_business = random.choice(business_types)
-        
-        # 1부터 100까지의 랜덤 점수 생성
-        random_score = random.randint(1, 100)
+        def safe_float(value):
+            try:
+                return float(value) if pd.notna(value) else None
+            except:
+                return None
             
         return {
-            'building_name': safe_str(row.get('건물명', '')),
-            'address': row['도로명주소'],
-            'latitude': float(row['위도']),
-            'longitude': float(row['경도']),
-            'postal_code': safe_str(row.get('신우편번호', '')),
-            'floor_info': safe_str(row.get('층정보', '')),
-            'business_type': random_business,
-            'coordinates': from_shape(Point(float(row['경도']), float(row['위도']))),
-            'score': random_score  # 랜덤 점수 추가
+            'industry_category': safe_str(row['대분류업종']),
+            'latitude': safe_float(row['위도']),
+            'longitude': safe_float(row['경도']),
+            'sales_level': safe_str(row['매출등급']),
+            'coordinates': from_shape(Point(float(row['경도']), float(row['위도']))) if not pd.isna(row['경도']) and not pd.isna(row['위도']) else None
         }
     except Exception as e:
-        print(f"건물 데이터 행 처리 중 오류 발생: {row}")
+        print(f"상가 데이터 정리 중 오류 발생: {row}")
         print(f"오류 내용: {e}")
         return None
 
 def process_vacant_row(row):
-    """naver_test_data2.csv 데이터 처리"""
+    """Gongsil_final.csv 데이터 처리"""
     try:
-        if pd.isna(row['lat']) or pd.isna(row['lng']):
+        if pd.isna(row['위도']) or pd.isna(row['경도']):
             return None
             
-        # 모든 필드에 대해 NaN 처리
-        def safe_str(value):
-            return str(value) if pd.notna(value) else ''
-            
         def safe_float(value):
-            if pd.isna(value):
-                return 0.0
             try:
-                # 문자열에서 숫자만 추출
-                value_str = str(value)
-                num_str = ''.join(filter(lambda x: x.isdigit() or x == '.', value_str))
-                return float(num_str) if num_str else 0.0
-            except:
-                return 0.0
+                return float(value) if pd.notna(value) else None
+            except Exception as e:
+                print(f"숫자 변환 오류: {value}, 오류: {e}")
+                return None
             
-        def parse_price(value):
-            if pd.isna(value):
-                return 0
-            try:
-                # 문자열에서 숫자만 추출
-                value_str = str(value)
-                num_str = ''.join(filter(str.isdigit, value_str))
-                return int(num_str) if num_str else 0
-            except:
-                return 0
-            
-        # 가격 정보 처리
-        deposit = parse_price(row['prc'])
-        monthly_rent = parse_price(row['rentPrc'])
+        lat = safe_float(row['위도'])
+        lng = safe_float(row['경도'])
         
+        if lat is None or lng is None:
+            return None
+            
+        try:
+            point = Point(float(lng), float(lat))
+            coordinates = from_shape(point)
+        except Exception as e:
+            print(f"좌표 생성 중 오류: {e}")
+            return None
+            
         return {
-            'property_type': safe_str(row['tradTpNm']),
-            'verification_type': safe_str(row['vrfcTpCd']),
-            'floor_info': safe_str(row['flrInfo']),
-            'deposit': deposit,
-            'monthly_rent': monthly_rent,
-            'formatted_price': safe_str(row['hanPrc']),
-            'area1': safe_float(row['spc1']),
-            'area2': safe_float(row['spc2']),
-            'direction': safe_str(row['direction']),
-            'confirmation_date': safe_str(row['atclCfmYmd']),
-            'latitude': float(row['lat']),
-            'longitude': float(row['lng']),
-            'description': safe_str(row['atclFetrDesc']),
-            'coordinates': from_shape(Point(float(row['lng']), float(row['lat'])))
+            'latitude': lat,
+            'longitude': lng,
+            'coordinates': coordinates
         }
     except Exception as e:
         print(f"공실 데이터 행 처리 중 오류 발생: {row}")
         print(f"오류 내용: {e}")
         return None
 
-def check_tables():
-    """데이터베이스 테이블 존재 여부 확인"""
-    inspector = inspect(engine)
-    tables = inspector.get_table_names()
-    print("현재 존재하는 테이블:", tables)
-    
-    # CommercialBuilding 테이블 컬럼 확인
-    if 'commercial_buildings' in tables:
-        columns = [col['name'] for col in inspector.get_columns('commercial_buildings')]
-        print("\ncommercial_buildings 테이블 컬럼:", columns)
-
-def import_commercial_data(building_file: str = './data/total_seoul_info_ree2.csv', 
-                         vacant_file: str = './data/naver_test_data2.csv',
+def import_commercial_data(store_file: str = './data/final_data.csv', 
+                         vacant_file: str = './data/Gongsil_final.csv',
                          batch_size: int = 100):
     """상가 및 공실 데이터 임포트"""
-    # 테이블 체크 추가
-    check_tables()
-    
     db = None
     try:
         db = SessionLocal()
         
-        # CSV 파일 확인
-        print(f"\n건물 데이터 파일 확인:")
-        building_df = pd.read_csv(
-            building_file, 
-            encoding='utf-8',
-            names=['건물본번지', '건물부번지', '건물관리번호', '건물명', '도로명주소', 
-                   '구우편번호', '신우편번호', '동정보', '층정보', '호정보', 
-                   '경도', '위도', '총점']
-        )
-        print("건물 데이터 샘플:")
-        print(building_df.head())
-        print("\n건물 데이터 컬럼명:", building_df.columns.tolist())
-        
         # 기존 데이터 삭제
+        print("\n기존 데이터 삭제 시작...")
+        vacant_count = db.query(models.VacantListing).count()
+        print(f"삭제할 공실 데이터 수: {vacant_count}")
         db.query(models.CommercialBuilding).delete()
         db.query(models.VacantListing).delete()
         db.commit()
+        print("기존 데이터 삭제 완료")
         
-        # 상가건물 데이터 임포트
-        buildings = []
+        # 상가 데이터 임포트
+        print("\n상가 데이터 파일 읽기 시작...")
+        store_df = pd.read_csv(store_file, encoding='utf-8')
+        print("상가 데이터 샘플:")
+        print(store_df.head())
         
-        for _, row in building_df.iterrows():
+        stores = []
+        for _, row in store_df.iterrows():
             try:
-                data = process_building_row(row)
+                data = process_store_row(row)
                 if data:
-                    building_obj = models.CommercialBuilding(**data)
-                    buildings.append(building_obj)
+                    store_obj = models.CommercialBuilding(**data)
+                    stores.append(store_obj)
                     
-                    if len(buildings) >= batch_size:
-                        db.bulk_save_objects(buildings)
+                    if len(stores) >= batch_size:
+                        db.bulk_save_objects(stores)
                         db.commit()
-                        buildings = []
+                        stores = []
             except Exception as e:
-                print(f"건물 데이터 처리 중 오류: {e}")
+                print(f"상가 데이터 처리 중 오류: {e}")
                 continue
         
-        if buildings:
+        if stores:
             try:
-                db.bulk_save_objects(buildings)
+                db.bulk_save_objects(stores)
                 db.commit()
             except Exception as e:
-                print(f"건물 데이터 최종 저장 중 오류: {e}")
+                print(f"상가 데이터 최종 저장 중 오류: {e}")
                 db.rollback()
         
-        # 공실 매물 데이터 임포트
-        print(f"\n공실 데이터 파일 확인:")
-        
-        # 컬럼명을 명시적으로 지정하여 CSV 읽기
-        vacant_columns = ['tradTpNm', 'vrfcTpCd', 'flrInfo', 'prc', 'rentPrc', 
-                         'hanPrc', 'spc1', 'spc2', 'direction', 'atclCfmYmd', 
-                         'lat', 'lng', 'atclFetrDesc']
-        
-        vacant_df = pd.read_csv(
-            vacant_file, 
-            encoding='utf-8',
-            usecols=vacant_columns  # 사용할 컬럼만 명시적으로 지정
-        )
-        
-        # 데이터 타입 변환
+        # 공실 데이터 임포트
+        print("\n공실 데이터 파일 읽기 시작...")
         try:
-            vacant_df['lat'] = pd.to_numeric(vacant_df['lat'], errors='coerce')
-            vacant_df['lng'] = pd.to_numeric(vacant_df['lng'], errors='coerce')
-            vacant_df['spc1'] = pd.to_numeric(vacant_df['spc1'], errors='coerce')
-            vacant_df['spc2'] = pd.to_numeric(vacant_df['spc2'], errors='coerce')
+            vacant_df = pd.read_csv(vacant_file, encoding='utf-8')
+            print(f"공실 데이터 총 {len(vacant_df)}행 로드됨")
+            print("공실 데이터 컬럼명:", vacant_df.columns.tolist())
+            print("\n공실 데이터 첫 5행 샘플:")
+            print(vacant_df[['위도', '경도']].head())
         except Exception as e:
-            print(f"데이터 타입 변환 중 오류: {e}")
+            print(f"공실 데이터 파일 읽기 오류: {e}")
+            return
         
-        print("공실 데이터 샘플:")
-        print(vacant_df.head())
-        print("\n공실 데이터 컬럼명:", vacant_df.columns.tolist())
-        print("\n데이터 타입:", vacant_df.dtypes)
-        
+        print("\n공실 데이터 처리 시작...")
         vacants = []
+        processed_count = 0
+        success_count = 0
+        error_count = 0
         
-        for _, row in vacant_df.iterrows():
+        for idx, row in vacant_df.iterrows():
             try:
+                processed_count += 1
                 data = process_vacant_row(row)
+                
                 if data:
                     vacant_obj = models.VacantListing(**data)
                     vacants.append(vacant_obj)
+                    success_count += 1
                     
                     if len(vacants) >= batch_size:
-                        db.bulk_save_objects(vacants)
-                        db.commit()
-                        vacants = []
+                        try:
+                            db.bulk_save_objects(vacants)
+                            db.commit()
+                            print(f"진행 상황: {processed_count}/{len(vacant_df)} 행 처리됨 "
+                                  f"(성공: {success_count}, 실패: {error_count})")
+                            vacants = []
+                        except Exception as e:
+                            print(f"공실 데이터 일괄 저장 중 오류: {e}")
+                            db.rollback()
+                            vacants = []
+                else:
+                    error_count += 1
+                    
+                if processed_count % 1000 == 0:
+                    print(f"진행 상황: {processed_count}/{len(vacant_df)} 행 처리됨 "
+                          f"(성공: {success_count}, 실패: {error_count})")
+                    
             except Exception as e:
-                print(f"공실 데이터 처리 중 오류: {e}")
+                error_count += 1
+                print(f"공실 데이터 처리 중 오류 (행 {idx}): {e}")
                 continue
         
         if vacants:
             try:
                 db.bulk_save_objects(vacants)
                 db.commit()
+                success_count += len(vacants)
+                print(f"\n마지막 {len(vacants)}개 공실 데이터 저장 완료")
             except Exception as e:
+                error_count += len(vacants)
                 print(f"공실 데이터 최종 저장 중 오류: {e}")
                 db.rollback()
+        
+        print("\n공실 데이터 임포트 완료")
+        print(f"총 처리된 행: {processed_count}")
+        print(f"성공적으로 저장된 데이터: {success_count}")
+        print(f"실패한 데이터: {error_count}")
+        
+        # 최종 데이터 확인
+        final_count = db.query(models.VacantListing).count()
+        print(f"\n데이터베이스의 최종 공실 데이터 수: {final_count}")
             
     except Exception as e:
         print(f"데이터 임포트 중 오류: {e}")

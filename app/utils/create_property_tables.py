@@ -6,7 +6,7 @@ from sqlalchemy import inspect
 def create_commercial_tables():
     """상가 및 공실 관련 테이블 생성"""
     try:
-        # 직접 SQL로 테이블 삭제 (IF EXISTS 사용)
+        # 기존 테이블 삭제
         with engine.connect() as connection:
             connection.execute(text("DROP TABLE IF EXISTS vacant_listings"))
             connection.execute(text("DROP TABLE IF EXISTS commercial_buildings"))
@@ -23,6 +23,7 @@ def create_commercial_tables():
         
     except Exception as e:
         print(f"테이블 생성 중 오류 발생: {e}")
+        print("상세 오류 정보:", str(e))
 
 if __name__ == "__main__":
     create_commercial_tables() 
