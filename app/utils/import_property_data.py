@@ -20,13 +20,38 @@ def process_store_row(row):
                 return float(value) if pd.notna(value) else None
             except:
                 return None
+                
+        def safe_int(value):
+            try:
+                return int(value) if pd.notna(value) else None
+            except:
+                return None
             
         return {
+            'sales_level': safe_str(row['매출등급']),
             'industry_category': safe_str(row['대분류업종']),
+            'industry_code': safe_str(row['대분류업종코드']),
+            'address': safe_str(row['도로명주소']),
             'latitude': safe_float(row['위도']),
             'longitude': safe_float(row['경도']),
-            'sales_level': safe_str(row['매출등급']),
-            'coordinates': from_shape(Point(float(row['경도']), float(row['위도']))) if not pd.isna(row['경도']) and not pd.isna(row['위도']) else None
+            'coordinates': from_shape(Point(float(row['경도']), float(row['위도']))) if not pd.isna(row['경도']) and not pd.isna(row['위도']) else None,
+            'num_of_company': safe_int(row['num_of_company(near 3km)']),
+            'num_of_large': safe_int(row['num_of_large(near 1km)']),
+            'num_of_bus_stop': safe_int(row['num_of_bus_stop(near 500m)']),
+            'num_of_hospital': safe_int(row['num_of_hospital(near 1km)']),
+            'num_of_theather': safe_int(row['num_of_theather(near 1km)']),
+            'num_of_camp': safe_int(row['num_of_camp(near 3km)']),
+            'num_of_school': safe_int(row['num_of_school(near 500m)']),
+            'nearest_subway_name': safe_str(row['nearest_subway_name']),
+            'nearest_subway_distance': safe_float(row['nearest_subway_distance']),
+            'num_of_subway': safe_int(row['num_of_subway(near 500m)']),
+            'num_of_gvn_office': safe_int(row['num_of_gvn_office(near 500m)']),
+            'parks_within_500m': safe_int(row['parks_within_500m']),
+            'parking_lots_within_500m': safe_int(row['parking_lots_within_500m']),
+            'university_within_0m_500m': safe_int(row['university_within_0m_500m']),
+            'university_within_500m_1000m': safe_int(row['university_within_500m_1000m']),
+            'university_within_1000m_1500m': safe_int(row['university_within_1000m_1500m']),
+            'university_within_1500m_2000m': safe_int(row['university_within_1500m_2000m'])
         }
     except Exception as e:
         print(f"상가 데이터 정리 중 오류 발생: {row}")
@@ -42,9 +67,17 @@ def process_vacant_row(row):
         def safe_float(value):
             try:
                 return float(value) if pd.notna(value) else None
-            except Exception as e:
-                print(f"숫자 변환 오류: {value}, 오류: {e}")
+            except:
                 return None
+                
+        def safe_int(value):
+            try:
+                return int(value) if pd.notna(value) else None
+            except:
+                return None
+                
+        def safe_str(value):
+            return str(value) if pd.notna(value) else None
             
         lat = safe_float(row['위도'])
         lng = safe_float(row['경도'])
@@ -62,15 +95,32 @@ def process_vacant_row(row):
         return {
             'latitude': lat,
             'longitude': lng,
-            'coordinates': coordinates
+            'coordinates': coordinates,
+            'num_of_company': safe_int(row['num_of_company(near 3km)']),
+            'num_of_large': safe_int(row['num_of_large(near 1km)']),
+            'num_of_bus_stop': safe_int(row['num_of_bus_stop(near 500m)']),
+            'num_of_hospital': safe_int(row['num_of_hospital(near 1km)']),
+            'num_of_theather': safe_int(row['num_of_theather(near 1km)']),
+            'num_of_camp': safe_int(row['num_of_camp(near 3km)']),
+            'num_of_school': safe_int(row['num_of_school(near 500m)']),
+            'nearest_subway_name': safe_str(row['nearest_subway_name']),
+            'nearest_subway_distance': safe_float(row['nearest_subway_distance']),
+            'num_of_subway': safe_int(row['num_of_subway(near 500m)']),
+            'num_of_gvn_office': safe_int(row['num_of_gvn_office(near 500m)']),
+            'parks_within_500m': safe_int(row['parks_within_500m']),
+            'parking_lots_within_500m': safe_int(row['parking_lots_within_500m']),
+            'university_within_0m_500m': safe_int(row['university_within_0m_500m']),
+            'university_within_500m_1000m': safe_int(row['university_within_500m_1000m']),
+            'university_within_1000m_1500m': safe_int(row['university_within_1000m_1500m']),
+            'university_within_1500m_2000m': safe_int(row['university_within_1500m_2000m'])
         }
     except Exception as e:
         print(f"공실 데이터 행 처리 중 오류 발생: {row}")
         print(f"오류 내용: {e}")
         return None
 
-def import_commercial_data(store_file: str = './data/final_data.csv', 
-                         vacant_file: str = './data/Gongsil_final.csv',
+def import_commercial_data(store_file: str = './data/Store_common.csv', 
+                         vacant_file: str = './data/Vacant.common.csv',
                          batch_size: int = 100):
     """상가 및 공실 데이터 임포트"""
     db = None
@@ -160,7 +210,7 @@ def import_commercial_data(store_file: str = './data/final_data.csv',
                     
                 if processed_count % 1000 == 0:
                     print(f"진행 상황: {processed_count}/{len(vacant_df)} 행 처리됨 "
-                          f"(성공: {success_count}, 실패: {error_count})")
+                          f"(성공: {success_count}, 실��: {error_count})")
                     
             except Exception as e:
                 error_count += 1
