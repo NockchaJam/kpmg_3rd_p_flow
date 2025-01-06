@@ -157,7 +157,7 @@
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/username/repo-name.git
+git clone https://github.com/NockchaJam/kpmg_3rd_p_flow.git
 cd repo-name
 ```
 
