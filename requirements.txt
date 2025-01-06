@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+sqlalchemy
+pymysql
+geoalchemy2
+transformers
+torch
+peft
+requests
+dataclasses
+wandb
